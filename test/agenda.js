@@ -15,9 +15,15 @@ var mongo = null;
 
 // create agenda instances
 var jobs = null;
+var jobsWithLogging = null;
 
 function clearJobs(done) {
   mongo.collection('agendaJobs').remove({}, done);
+}
+
+function clearLogs(done) {
+  var logs=mongo.collection('agendaLogs');
+  logs ? logs.remove({}, done) : done();
 }
 
 // Slow timeouts for travis
@@ -380,6 +386,28 @@ describe("agenda", function() {
             clearJobs(done);
           });
         });
+      });
+
+      describe('log', function() {
+         var job;
+         beforeEach(function() {
+           var email={to: 'some guy'};
+           job = jobs.create('sendEmail', email);
+           job.log("sending email", email);
+           job.log("sent!");
+         });
+
+         it('stores logs', function() {
+           expect(job._logs).to.be.a(Array);
+           expect(job._logs).to.have.length(2);
+           expect(job._logs[0]).to.equal('sending email - {"to":"some guy"}');
+           expect(job._logs[1]).to.equal("sent!");
+         });
+
+         it('returns logs', function() {
+            expect(job.logs()).to.be.a("string");
+            expect(job.logs()).to.equal('sending email - {"to":"some guy"}\nsent!');
+         })
       });
     });
 
@@ -1449,6 +1477,143 @@ describe("agenda", function() {
       });
     });
 
+    describe('Logging', function(){
+
+      beforeEach(function(){
+
+         clearLogs();
+
+         jobs.define("success", function(job, done){
+           job.log("starting job");
+           job.log("finished job");
+           setTimeout(function(){ done(); }, 100);
+        });
+
+         jobs.define("failure with error reason", function(job, done){
+           job.log("starting job");
+           job.fail(new Error("Failed with error reason"));
+           setTimeout(function(){ done(); }, 100);
+         });
+
+         jobs.define("failure with error message", function(job, done){
+           job.log("starting job");
+           job.fail("Failed with error message");
+           setTimeout(function(){ done(); }, 100);
+         });
+
+          jobs.define("success with message", function(job, done){
+             job.log("starting job");
+             job.log("finished job");
+             setTimeout(function(){ done(null, "Success with message"); }, 100);
+          });
+
+          jobs.define("failure with error callback", function(job, done){
+             job.log("starting job");
+             job.log("finished job");
+             setTimeout(function(){ done(new Error("Failed with error callback")); }, 100);
+          });
+      });
+
+      it("Should not log the job", function(done){
+         var job = new Job({agenda: jobs, name: 'success'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'success'}).toArray(function(err, j) {
+            expect(j).to.have.length(0);
+            done();
+          });
+        });
+      });
+
+      it("Should log the job with result success", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'success'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'success'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].result).to.equal('success');
+            done();
+          });
+        });
+      });
+
+      it("Should log the job fail with error reason", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'failure with error reason'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'failure with error reason'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].result).to.equal('fail');
+            expect(j[0].message).to.equal("Failed with error reason");
+            done();
+          });
+        });
+      });
+
+      it("Should log the job fail with error message", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'failure with error message'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'failure with error message'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].result).to.equal('fail');
+            expect(j[0].message).to.equal("Failed with error message");
+            done();
+          });
+        });
+      });
+
+      it("Should log the success with message", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'success with message'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'success with message'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].result).to.equal('success');
+            expect(j[0].message).to.equal("Success with message");
+            done();
+          });
+        });
+      });
+
+      it("Should log the fail with callback error", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'failure with error callback'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'failure with error callback'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].result).to.equal('fail');
+            expect(j[0].message).to.equal("Failed with error callback");
+            done();
+          });
+        });
+      });
+
+      it("Should log the job with logs", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'success'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'success'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].logs).to.equal('starting job\nfinished job');
+            done();
+          });
+        });
+      });
+
+      it("Should log the job with start and end times", function(done){
+         jobs.enableLogging();
+         var job = new Job({agenda: jobs, name: 'success'});
+        job.run(function() {
+          mongo.collection("agendaLogs").find({job: 'success'}).toArray(function(err, j) {
+            expect(j).to.have.length(1);
+            expect(j[0].ranAt).to.be.a(Date);
+            expect(j[0].finishedAt).to.be.a(Date);
+            done();
+          });
+        });
+      });
+   });
+
   });
 
   describe('Retry', function () {
@@ -1477,5 +1642,4 @@ describe("agenda", function() {
       jobs.start();
     });
   });
-
 });
