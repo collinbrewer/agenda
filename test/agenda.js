@@ -390,24 +390,31 @@ describe("agenda", function() {
 
       describe('log', function() {
          var job;
+         var date;
+
          beforeEach(function() {
+           date=new Date();
            var email={to: 'some guy'};
            job = jobs.create('sendEmail', email);
-           job.log("sending email", email);
-           job.log("sent!");
+           job.log("sending email");
+           job.log(email);
+           job.log("sent email", email);
+           job.log("sent %i email to %s at %o", 1, email.to, date);
          });
 
          it('stores logs', function() {
            expect(job._logs).to.be.a(Array);
-           expect(job._logs).to.have.length(2);
-           expect(job._logs[0]).to.equal('sending email - {"to":"some guy"}');
-           expect(job._logs[1]).to.equal("sent!");
+           expect(job._logs).to.have.length(4);
+           expect(job._logs[0]).to.equal('sending email');
+           expect(job._logs[1]).to.equal('{ to: \'some guy\' }');
+           expect(job._logs[2]).to.equal('sent email { to: \'some guy\' }');
+           expect(job._logs[3]).to.equal('sent 1 email to some guy at "' + date.toISOString() + '"');
          });
 
          it('returns logs', function() {
             expect(job.logs()).to.be.a("string");
-            expect(job.logs()).to.equal('sending email - {"to":"some guy"}\nsent!');
-         })
+            expect(job.logs()).to.equal('sending email\n{ to: \'some guy\' }\nsent email { to: \'some guy\' }\nsent 1 email to some guy at "' + date.toISOString() + '"');
+         });
       });
     });
 
